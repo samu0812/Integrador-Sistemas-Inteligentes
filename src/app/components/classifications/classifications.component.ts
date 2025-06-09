@@ -2,17 +2,25 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DataService } from '../../services/data.service';
 import { Classification } from '../../models/ai-software.model';
+import { FormsModule } from '@angular/forms';
 
 @Component({
   selector: 'app-classifications',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="classifications-container">
       <h1>🔍 Clasificaciones de Sistemas Inteligentess</h1>
+      <input
+        type="text"
+        [(ngModel)]="filtro"
+        placeholder="🔎 Buscar clasificaciones..."
+        class="form-control mb-3"
+        style="width: 100%; padding: 0.75rem; margin-bottom: 1rem; border: 1px solid #ccc; border-radius: 6px;"
+      />
       
       <div class="classifications-grid">
-        <div *ngFor="let classification of classifications" class="classification-card">
+        <div *ngFor="let classification of classificationsFiltradas" class="classification-card">
           <div class="card-image">
             <img [src]="classification.imageUrl" [alt]="classification.name">
           </div>
@@ -192,4 +200,16 @@ export class ClassificationsComponent implements OnInit {
   rateClassification(id: number, rating: number) {
     this.dataService.rateClassification(id, rating);
   }
+  filtro: string = '';
+
+get classificationsFiltradas(): Classification[] {
+  const texto = this.filtro.toLowerCase();
+  return this.classifications.filter(clasif =>
+    clasif.name.toLowerCase().includes(texto) ||
+    clasif.description.toLowerCase().includes(texto) ||
+    clasif.examples.some(ej => ej.toLowerCase().includes(texto)) ||
+    clasif.interestLinks.some(link => link.toLowerCase().includes(texto))
+  );
+}
+
 }
