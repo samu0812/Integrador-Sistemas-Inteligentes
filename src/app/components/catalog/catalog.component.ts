@@ -40,9 +40,16 @@ import { AISoftware } from '../../models/ai-software.model';
           </div>
         </form>
       </div>
+      <input
+        type="text"
+        [(ngModel)]="filtro"
+        placeholder="🔍 Buscar por nombre, autor, categoría o descripción..."
+        class="form-control mb-3"
+        style="width: 100%; padding: 0.75rem; margin-bottom: 1rem; border: 1px solid #ccc; border-radius: 6px;"
+      />
 
       <div class="software-grid">
-        <div *ngFor="let software of aiSoftware" class="software-card">
+        <div *ngFor="let software of softwareFiltrado" class="software-card">
           <div class="card-header">
             <h3>{{software.name}}</h3>
             <span class="category-badge">{{software.category}}</span>
@@ -292,4 +299,18 @@ export class CatalogComponent implements OnInit {
   rateSoftware(id: number, rating: number) {
     this.dataService.rateAISoftware(id, rating);
   }
+
+  filtro: string = '';
+
+get softwareFiltrado(): AISoftware[] {
+  const texto = this.filtro.toLowerCase();
+  return this.aiSoftware.filter(s =>
+    s.name.toLowerCase().includes(texto) ||
+    s.author.toLowerCase().includes(texto) ||
+    s.category.toLowerCase().includes(texto) ||
+    s.description.toLowerCase().includes(texto) ||
+    s.objective.toLowerCase().includes(texto)
+  );
+}
+
 }
