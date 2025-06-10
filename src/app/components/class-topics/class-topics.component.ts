@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DataService } from '../../services/data.service';
@@ -13,13 +13,6 @@ interface ClassTopic {
   ratingCount: number;
   createdDate: Date;
   expanded?: boolean;
-}
-
-declare global {
-  interface Window {
-    webkitSpeechRecognition: any;
-    SpeechRecognition: any;
-  }
 }
 
 @Component({
@@ -95,27 +88,33 @@ declare global {
       <!-- Filtros y búsqueda -->
       <div class="filters-section">
         <div class="search-bar">
-          <div class="search-input-container">
-            <input 
-              type="text" 
-              [(ngModel)]="searchTerm" 
-              (input)="filterTopics()"
-              placeholder="🔍 Buscar temas..."
-              #searchInput>
-            <button 
-              class="voice-btn"
-              [class.recording]="isRecording"
-              [class.supported]="speechSupported"
-              [disabled]="!speechSupported"
-              (click)="toggleVoiceSearch()"
-              [title]="getVoiceButtonTitle()">
-              <span *ngIf="!isRecording">🎤</span>
-              <span *ngIf="isRecording" class="recording-icon">🔴</span>
-            </button>
-          </div>
-          <div *ngIf="voiceStatus" class="voice-status" [class]="voiceStatusClass">
-            {{voiceStatus}}
-          </div>
+          <!-- Reemplaza tu input actual con este bloque -->
+      <div class="search-container">
+        <div class="search-input-group">
+          <input
+            type="text"
+            [(ngModel)]="filtro"
+            placeholder="🔍 Buscar por nombre, autor, categoría o descripción..."
+            class="search-input"
+          />
+          <button 
+            (click)="toggleVoiceSearch()" 
+            [class.recording]="isRecording"
+            class="voice-btn"
+            [disabled]="!speechSupported"
+            title="{{speechSupported ? 'Buscar por voz' : 'Búsqueda por voz no soportada'}}">
+            {{isRecording ? '🛑' : '🎤'}}
+          </button>
+        </div>
+        
+        <div *ngIf="isRecording" class="recording-indicator">
+          <span class="pulse">🔴</span> Escuchando... Di lo que quieres buscar
+        </div>
+        
+        <div *ngIf="voiceError" class="voice-error">
+          ⚠️ {{voiceError}}
+        </div>
+      </div>
         </div>
         <div class="sort-options">
           <select [(ngModel)]="sortBy" (change)="sortTopics()">
@@ -190,9 +189,6 @@ declare global {
 
       <div *ngIf="filteredTopics.length === 0" class="no-results">
         <p>No se encontraron temas que coincidan con tu búsqueda.</p>
-        <p *ngIf="searchTerm" class="search-suggestion">
-          Intenta usar palabras clave diferentes o utiliza la búsqueda por voz 🎤
-        </p>
       </div>
     </div>
   `,
@@ -306,102 +302,12 @@ declare global {
       min-width: 300px;
     }
     
-    .search-input-container {
-      position: relative;
-      display: flex;
-      align-items: center;
-    }
-    
-    .search-input-container input {
+    .search-bar input {
       width: 100%;
       padding: 0.75rem;
-      padding-right: 3.5rem;
       border: 2px solid #e2e8f0;
       border-radius: 6px;
       font-size: 1rem;
-      transition: border-color 0.3s;
-    }
-    
-    .search-input-container input:focus {
-      outline: none;
-      border-color: #667eea;
-    }
-    
-    .voice-btn {
-      position: absolute;
-      right: 0.5rem;
-      background: transparent;
-      border: none;
-      font-size: 1.2rem;
-      cursor: pointer;
-      padding: 0.25rem;
-      border-radius: 4px;
-      transition: all 0.3s ease;
-      min-width: 2rem;
-      height: 2rem;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    
-    .voice-btn:hover {
-      background: rgba(102, 126, 234, 0.1);
-    }
-    
-    .voice-btn.recording {
-      background: rgba(239, 68, 68, 0.1);
-      animation: pulse 1s infinite;
-    }
-    
-    .voice-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-    
-    .voice-btn.supported {
-      color: #667eea;
-    }
-    
-    .recording-icon {
-      animation: blink 0.8s infinite;
-    }
-    
-    @keyframes pulse {
-      0% { transform: scale(1); }
-      50% { transform: scale(1.1); }
-      100% { transform: scale(1); }
-    }
-    
-    @keyframes blink {
-      0%, 50% { opacity: 1; }
-      51%, 100% { opacity: 0.3; }
-    }
-    
-    .voice-status {
-      margin-top: 0.5rem;
-      padding: 0.5rem;
-      border-radius: 4px;
-      font-size: 0.9rem;
-      text-align: center;
-      transition: all 0.3s ease;
-    }
-    
-    .voice-status.listening {
-      background: rgba(59, 130, 246, 0.1);
-      color: #1d4ed8;
-      border: 1px solid rgba(59, 130, 246, 0.2);
-    }
-    
-    .voice-status.success {
-      background: rgba(34, 197, 94, 0.1);
-      color: #15803d;
-      border: 1px solid rgba(34, 197, 94, 0.2);
-    }
-    
-    .voice-status.error {
-      background: rgba(239, 68, 68, 0.1);
-      color: #dc2626;
-      border: 1px solid rgba(239, 68, 68, 0.2);
     }
     
     .sort-options select {
@@ -587,12 +493,6 @@ declare global {
       font-size: 1.1rem;
     }
     
-    .search-suggestion {
-      margin-top: 1rem;
-      font-size: 1rem;
-      color: #888;
-    }
-    
     @media (max-width: 768px) {
       .class-topics-container {
         padding: 1rem;
@@ -614,23 +514,91 @@ declare global {
         min-width: unset;
       }
     }
+    /*estilos de busqueda por vos */
+    .search-container {
+      margin-bottom: 1rem;
+    }
+
+    .search-input-group {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .search-input {
+      flex: 1;
+      padding: 0.75rem;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+
+    .voice-btn {
+      padding: 0.75rem;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 1.2rem;
+      min-width: 50px;
+      transition: all 0.3s;
+    }
+
+    .voice-btn:hover:not(:disabled) {
+      background: #5a6fd8;
+      transform: scale(1.05);
+    }
+
+    .voice-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    .voice-btn.recording {
+      background: #dc3545;
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); }
+    }
+
+    .recording-indicator {
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      background: #d4edda;
+      border: 1px solid #c3e6cb;
+      border-radius: 4px;
+      color: #155724;
+      font-size: 0.9rem;
+    }
+
+    .pulse {
+      animation: pulse 1s infinite;
+    }
+
+    .voice-error {
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      border-radius: 4px;
+      color: #721c24;
+      font-size: 0.9rem;
+    }
   `]
 })
-export class ClassTopicsComponent implements OnInit, OnDestroy {
+export class ClassTopicsComponent implements OnInit {
   topics: ClassTopic[] = [];
-  filteredTopics: ClassTopic[] = [];
+  // filteredTopics: ClassTopic[] = [];
   showAddForm = false;
   searchTerm = '';
   sortBy = 'newest';
   userRating: { [key: number]: number } = {};
-  
-  // Propiedades para búsqueda por voz
-  private recognition: any;
-  isRecording = false;
-  speechSupported = false;
-  voiceStatus = '';
-  voiceStatusClass = '';
-  
+
   newTopic: Partial<ClassTopic> = {
     title: '',
     image: '',
@@ -638,136 +606,190 @@ export class ClassTopicsComponent implements OnInit, OnDestroy {
     content: ''
   };
 
-  constructor(private dataService: DataService) {}
+    // Propiedades para búsqueda por voz
+  filtro: string = '';
+  isRecording = false;
+  speechSupported = false;
+  voiceError = '';
+  private recognition: any;
+  private isManualStop = false;
+
+  constructor(
+    private dataService: DataService,
+    private cdr: ChangeDetectorRef
+
+  ) {
+
+    this.checkSpeechSupport();
+  }
+
 
   ngOnInit() {
     this.loadTopics();
-    this.initSpeechRecognition();
   }
 
-  ngOnDestroy() {
-    if (this.recognition) {
-      this.recognition.stop();
-    }
-  }
-
-  private initSpeechRecognition() {
-    // Verificar soporte para Speech Recognition
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  // ✅ AGREGAR ESTE GETTER - Para que funcione el filtrado por voz
+  get filteredTopics(): ClassTopic[] {
+    let result = [...this.topics];
     
-    if (!SpeechRecognition) {
-      this.speechSupported = false;
-      console.warn('Speech Recognition no es compatible con este navegador');
-      return;
+    // Filtrar por texto de búsqueda por voz O por searchTerm
+    const searchText = this.filtro || this.searchTerm;
+    if (searchText && searchText.trim()) {
+      const term = searchText.toLowerCase();
+      result = result.filter(topic =>
+        topic.title.toLowerCase().includes(term) ||
+        topic.description.toLowerCase().includes(term) ||
+        topic.content.toLowerCase().includes(term)
+      );
     }
 
-    this.speechSupported = true;
+    // Aplicar ordenamiento
+    switch (this.sortBy) {
+      case 'newest':
+        result.sort((a, b) => b.createdDate.getTime() - a.createdDate.getTime());
+        break;
+      case 'oldest':
+        result.sort((a, b) => a.createdDate.getTime() - b.createdDate.getTime());
+        break;
+      case 'rating':
+        result.sort((a, b) => b.rating - a.rating);
+        break;
+      case 'title':
+        result.sort((a, b) => a.title.localeCompare(b.title));
+        break;
+    }
+    
+    return result;
+  }
+
+  // MÉTODOS DE BÚSQUEDA POR VOZ
+  private checkSpeechSupport() {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    this.speechSupported = !!SpeechRecognition;
+    
+    if (this.speechSupported) {
+      this.initializeSpeechRecognition();
+    }
+  }
+
+  private initializeSpeechRecognition() {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     this.recognition = new SpeechRecognition();
     
-    // Configuración del reconocimiento de voz
+    this.recognition.lang = 'es-ES';
     this.recognition.continuous = false;
     this.recognition.interimResults = false;
-    this.recognition.lang = 'es-ES'; // Español
-    
-    // Eventos del reconocimiento de voz
-    this.recognition.onstart = () => {
-      this.isRecording = true;
-      this.voiceStatus = '🎤 Escuchando... Habla ahora';
-      this.voiceStatusClass = 'listening';
-    };
+    this.recognition.maxAlternatives = 1;
 
     this.recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      this.searchTerm = transcript;
-      this.voiceStatus = `✅ Escuchado: "${transcript}"`;
-      this.voiceStatusClass = 'success';
-      this.filterTopics();
-      
-      // Limpiar el status después de 3 segundos
-      setTimeout(() => {
-        this.voiceStatus = '';
-        this.voiceStatusClass = '';
-      }, 3000);
-    };
-
-    this.recognition.onerror = (event: any) => {
-      let errorMessage = '';
-      switch (event.error) {
-        case 'no-speech':
-          errorMessage = '❌ No se detectó voz. Intenta de nuevo.';
-          break;
-        case 'audio-capture':
-          errorMessage = '❌ No se puede acceder al micrófono.';
-          break;
-        case 'not-allowed':
-          errorMessage = '❌ Permiso de micrófono denegado.';
-          break;
-        case 'network':
-          errorMessage = '❌ Error de conexión.';
-          break;
-        default:
-          errorMessage = '❌ Error en el reconocimiento de voz.';
-      }
-      
-      this.voiceStatus = errorMessage;
-      this.voiceStatusClass = 'error';
-      this.isRecording = false;
-      
-      // Limpiar el status después de 5 segundos
-      setTimeout(() => {
-        this.voiceStatus = '';
-        this.voiceStatusClass = '';
-      }, 5000);
+      const result = event.results[0][0].transcript;
+      console.log('Texto reconocido:', result);
+      this.filtro = result;
+      this.cdr.detectChanges();
     };
 
     this.recognition.onend = () => {
+      console.log('Reconocimiento terminado. Manual stop:', this.isManualStop);
       this.isRecording = false;
+      this.isManualStop = false;
+      this.cdr.detectChanges();
+    };
+
+    this.recognition.onerror = (event: any) => {
+      console.error('Error de reconocimiento:', event.error);
+      this.handleVoiceError(event.error);
+      this.isRecording = false;
+      this.isManualStop = false;
+      this.cdr.detectChanges();
+    };
+
+    this.recognition.onnomatch = () => {
+      this.voiceError = 'No se pudo entender lo que dijiste. Inténtalo de nuevo.';
+      this.isRecording = false;
+      this.isManualStop = false;
+      this.cdr.detectChanges();
     };
   }
 
-  toggleVoiceSearch() {
-    if (!this.speechSupported) {
-      alert('Tu navegador no soporta reconocimiento de voz. Prueba con Chrome, Firefox o Edge.');
+    toggleVoiceSearch() {
+        console.log('Toggle clicked. Current state:', this.isRecording);
+        
+        if (!this.speechSupported) {
+          this.voiceError = 'Tu navegador no soporta búsqueda por voz.';
+          return;
+        }
+
+        if (this.isRecording) {
+          this.stopRecording();
+        } else {
+          this.startRecording();
+        }
+      }
+
+    private startRecording() {
+    if (this.isRecording) {
+      console.log('Ya está grabando, ignorando...');
       return;
     }
+    
+    this.isRecording = true;
+    this.voiceError = '';
+    this.isManualStop = false;
+    this.cdr.detectChanges();
+    
+    try {
+      this.recognition.start();
+      console.log('✅ Iniciando reconocimiento de voz...');
+    } catch (error) {
+      console.error('❌ Error al iniciar reconocimiento:', error);
+      this.voiceError = 'Error al iniciar la grabación.';
+      this.isRecording = false;
+      this.cdr.detectChanges();
+    }
+  }
 
-    if (this.isRecording) {
+  private stopRecording() {
+    if (!this.isRecording) {
+      console.log('No está grabando, ignorando stop...');
+      return;
+    }
+    
+    console.log('🛑 Stop manual solicitado');
+    this.isManualStop = true;
+    
+    try {
       this.recognition.stop();
-      this.voiceStatus = '⏹️ Búsqueda por voz detenida';
-      this.voiceStatusClass = '';
-      setTimeout(() => {
-        this.voiceStatus = '';
-      }, 2000);
-    } else {
-      // Limpiar búsqueda anterior
-      this.searchTerm = '';
-      this.filterTopics();
-      
-      // Iniciar reconocimiento
-      try {
-        this.recognition.start();
-      } catch (error) {
-        this.voiceStatus = '❌ Error al iniciar el reconocimiento de voz';
-        this.voiceStatusClass = 'error';
-        setTimeout(() => {
-          this.voiceStatus = '';
-          this.voiceStatusClass = '';
-        }, 3000);
-      }
+    } catch (error) {
+      console.error('❌ Error al detener reconocimiento:', error);
+      this.isRecording = false;
+      this.isManualStop = false;
     }
   }
 
-  getVoiceButtonTitle(): string {
-    if (!this.speechSupported) {
-      return 'Reconocimiento de voz no soportado en este navegador';
+  private handleVoiceError(error: string) {
+    switch (error) {
+      case 'no-speech':
+        this.voiceError = 'No se detectó ningún sonido. Inténtalo de nuevo.';
+        break;
+      case 'audio-capture':
+        this.voiceError = 'No se pudo acceder al micrófono.';
+        break;
+      case 'not-allowed':
+        this.voiceError = 'Permiso para usar micrófono denegado.';
+        break;
+      case 'network':
+        this.voiceError = 'Error de red. Verifica tu conexión.';
+        break;
+      default:
+        this.voiceError = 'Error de reconocimiento. Inténtalo de nuevo.';
     }
-    return this.isRecording ? 'Detener búsqueda por voz' : 'Buscar con voz';
   }
 
+  // ✅ ACTUALIZAR EL MÉTODO loadTopics - Remover la asignación a filteredTopics
   loadTopics() {
     this.topics = this.dataService.getClassTopics();
-    this.filteredTopics = [...this.topics];
-    this.sortTopics();
+    // ❌ QUITAR ESTA LÍNEA: this.filteredTopics = [...this.topics];
+    // ❌ QUITAR ESTA LÍNEA: this.sortTopics();
   }
 
   toggleAddForm() {
@@ -807,34 +829,23 @@ export class ClassTopicsComponent implements OnInit, OnDestroy {
     };
   }
 
+  // ✅ ACTUALIZAR EL MÉTODO filterTopics - Simplificar
   filterTopics() {
-    if (!this.searchTerm.trim()) {
-      this.filteredTopics = [...this.topics];
-    } else {
-      const term = this.searchTerm.toLowerCase();
-      this.filteredTopics = this.topics.filter(topic =>
-        topic.title.toLowerCase().includes(term) ||
-        topic.description.toLowerCase().includes(term) ||
-        topic.content.toLowerCase().includes(term)
-      );
+    // El filtrado ahora se hace en el getter, solo necesitamos limpiar filtro por voz
+    if (this.searchTerm) {
+      this.filtro = ''; // Limpiar búsqueda por voz si se usa búsqueda manual
     }
-    this.sortTopics();
   }
 
+  // ✅ ACTUALIZAR EL MÉTODO sortTopics - Ya no necesario, se hace en getter
   sortTopics() {
-    switch (this.sortBy) {
-      case 'newest':
-        this.filteredTopics.sort((a, b) => b.createdDate.getTime() - a.createdDate.getTime());
-        break;
-      case 'oldest':
-        this.filteredTopics.sort((a, b) => a.createdDate.getTime() - b.createdDate.getTime());
-        break;
-      case 'rating':
-        this.filteredTopics.sort((a, b) => b.rating - a.rating);
-        break;
-      case 'title':
-        this.filteredTopics.sort((a, b) => a.title.localeCompare(b.title));
-        break;
+    // Este método ahora se ejecuta automáticamente en el getter
+  }
+
+    // ✅ AGREGAR MÉTODO ngOnDestroy
+  ngOnDestroy() {
+    if (this.recognition && this.isRecording) {
+      this.recognition.stop();
     }
   }
 
