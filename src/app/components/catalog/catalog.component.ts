@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit , ChangeDetectorRef  } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DataService } from '../../services/data.service';
@@ -346,12 +346,12 @@ export class CatalogComponent implements OnInit {
   aiSoftware: AISoftware[] = [];
   showAddForm = false;
   hoveredRating: {[key: number]: number} = {};
-  // Nuevas propiedades para búsqueda por voz
+  // Nuevas propiedades para búsqueda por voz (SIMPLES)
   isRecording = false;
   speechSupported = false;
   voiceError = '';
   private recognition: any;
-  private stopTimeout: any;
+  private isManualStop = false; // Nueva flag para detectar stop manual
   
   newSoftware: Partial<AISoftware> = {
     name: '',
@@ -366,7 +366,11 @@ export class CatalogComponent implements OnInit {
     ratingCount: 0
   };
 
-  constructor(private dataService: DataService) {
+  constructor(
+    private dataService: DataService,
+    private cdr: ChangeDetectorRef  // ← AGREGAR ESTO
+
+  ) {
     // Verificar soporte para Web Speech API
     this.checkSpeechSupport();
 
@@ -392,50 +396,48 @@ export class CatalogComponent implements OnInit {
 
   // REEMPLAZA solo este método en tu código:
 
-  private initializeSpeechRecognition() {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    this.recognition = new SpeechRecognition();
-    
-    // Configuración
-    this.recognition.lang = 'es-ES'; // Español
-    this.recognition.continuous = false;
-    this.recognition.interimResults = false;
-    this.recognition.maxAlternatives = 1;
+private initializeSpeechRecognition() {
+  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  this.recognition = new SpeechRecognition();
+  
+  this.recognition.lang = 'es-ES';
+  this.recognition.continuous = false;
+  this.recognition.interimResults = false;
+  this.recognition.maxAlternatives = 1;
 
-    // Evento cuando se obtiene resultado
-    this.recognition.onresult = (event: any) => {
-      const result = event.results[0][0].transcript;
-      console.log('Texto reconocido:', result);
-      
-      // Actualizar el filtro con el texto reconocido
-      this.filtro = result;
-      // ❌ QUITAR: this.stopRecording(); 
-    };
+  this.recognition.onresult = (event: any) => {
+    const result = event.results[0][0].transcript;
+    console.log('Texto reconocido:', result);
+    this.filtro = result;
+    this.cdr.detectChanges(); // ← FORZAR DETECCIÓN
+  };
 
-    // Evento cuando termina la grabación (ÚNICO lugar donde se maneja el final)
-    this.recognition.onend = () => {
-      console.log('Reconocimiento terminado automáticamente');
-      this.isRecording = false; // ✅ Solo cambiar estado
-      // ❌ QUITAR: this.stopRecording();
-    };
+  this.recognition.onend = () => {
+    console.log('Reconocimiento terminado. Manual stop:', this.isManualStop);
+    this.isRecording = false;
+    this.isManualStop = false;
+    this.cdr.detectChanges(); // ← FORZAR DETECCIÓN
+  };
 
-    // Evento de error
-    this.recognition.onerror = (event: any) => {
-      console.error('Error de reconocimiento:', event.error);
-      this.handleVoiceError(event.error);
-      this.isRecording = false; // ✅ Solo cambiar estado
-      // ❌ QUITAR: this.stopRecording();
-    };
+  this.recognition.onerror = (event: any) => {
+    console.error('Error de reconocimiento:', event.error);
+    this.handleVoiceError(event.error);
+    this.isRecording = false;
+    this.isManualStop = false;
+    this.cdr.detectChanges(); // ← FORZAR DETECCIÓN
+  };
 
-    // Evento cuando no se detecta habla
-    this.recognition.onnomatch = () => {
-      this.voiceError = 'No se pudo entender lo que dijiste. Inténtalo de nuevo.';
-      this.isRecording = false; // ✅ Solo cambiar estado
-      // ❌ QUITAR: this.stopRecording();
-    };
-  }
+  this.recognition.onnomatch = () => {
+    this.voiceError = 'No se pudo entender lo que dijiste. Inténtalo de nuevo.';
+    this.isRecording = false;
+    this.isManualStop = false;
+    this.cdr.detectChanges(); // ← FORZAR DETECCIÓN
+  };
+}  
 
   toggleVoiceSearch() {
+    console.log('Toggle clicked. Current state:', this.isRecording);
+    
     if (!this.speechSupported) {
       this.voiceError = 'Tu navegador no soporta búsqueda por voz.';
       return;
@@ -448,47 +450,46 @@ export class CatalogComponent implements OnInit {
     }
   }
 
-      private startRecording() {
-      if (this.isRecording) return;
-      
-      this.isRecording = true;
-      this.voiceError = '';
-      
-      // Limpiar timeout anterior si existe
-      if (this.stopTimeout) {
-        clearTimeout(this.stopTimeout);
-      }
-      
-      try {
-        this.recognition.start();
-        console.log('Iniciando reconocimiento de voz xddd...');
-      } catch (error) {
-        console.error('Error al iniciar reconocimiento:', error);
-        this.voiceError = 'Error al iniciar la grabación.';
-        this.isRecording = false;
-      }
+  private startRecording() {
+    if (this.isRecording) {
+      console.log('Ya está grabando, ignorando...');
+      return;
     }
+    
+    this.isRecording = true;
+    this.voiceError = '';
+    this.isManualStop = false;
+    this.cdr.detectChanges(); // ← FORZAR DETECCIÓN
+    
+    try {
+      this.recognition.start();
+      console.log('✅ Iniciando reconocimiento de voz...');
+    } catch (error) {
+      console.error('❌ Error al iniciar reconocimiento:', error);
+      this.voiceError = 'Error al iniciar la grabación.';
+      this.isRecording = false;
+      this.cdr.detectChanges(); // ← FORZAR DETECCIÓN
+    }
+  }
 
-    private stopRecording() {
-      if (!this.isRecording) return;
-      
-      console.log('Deteniendo reconocimiento...');
-      
-      // Usar timeout para asegurar que se detenga
-      this.stopTimeout = setTimeout(() => {
-        this.isRecording = false;
-        console.log('Forzando parada por timeout');
-      }, 100);
-      
-      if (this.recognition) {
-        try {
-          this.recognition.stop();
-        } catch (error) {
-          console.error('Error al detener reconocimiento:', error);
-          this.isRecording = false;
-        }
-      }
+  private stopRecording() {
+    if (!this.isRecording) {
+      console.log('No está grabando, ignorando stop...');
+      return;
     }
+    
+    console.log('🛑 Stop manual solicitado');
+    this.isManualStop = true; // Marcar que es stop manual
+    
+    try {
+      this.recognition.stop();
+      // NO cambiar isRecording aquí, se hace en onend
+    } catch (error) {
+      console.error('❌ Error al detener reconocimiento:', error);
+      this.isRecording = false;
+      this.isManualStop = false;
+    }
+  }
 
   private handleVoiceError(error: string) {
     switch (error) {
@@ -509,13 +510,10 @@ export class CatalogComponent implements OnInit {
     }
   }
 
-  // Limpiar timeout en ngOnDestroy
+  // Método de limpieza simplificado
   ngOnDestroy() {
-    if (this.recognition) {
+    if (this.recognition && this.isRecording) {
       this.recognition.stop();
-    }
-    if (this.stopTimeout) {
-      clearTimeout(this.stopTimeout);
     }
   }
 
