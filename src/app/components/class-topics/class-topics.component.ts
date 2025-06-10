@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DataService } from '../../services/data.service';
@@ -13,6 +13,13 @@ interface ClassTopic {
   ratingCount: number;
   createdDate: Date;
   expanded?: boolean;
+}
+
+declare global {
+  interface Window {
+    webkitSpeechRecognition: any;
+    SpeechRecognition: any;
+  }
 }
 
 @Component({
@@ -88,11 +95,27 @@ interface ClassTopic {
       <!-- Filtros y búsqueda -->
       <div class="filters-section">
         <div class="search-bar">
-          <input 
-            type="text" 
-            [(ngModel)]="searchTerm" 
-            (input)="filterTopics()"
-            placeholder="🔍 Buscar temas...">
+          <div class="search-input-container">
+            <input 
+              type="text" 
+              [(ngModel)]="searchTerm" 
+              (input)="filterTopics()"
+              placeholder="🔍 Buscar temas..."
+              #searchInput>
+            <button 
+              class="voice-btn"
+              [class.recording]="isRecording"
+              [class.supported]="speechSupported"
+              [disabled]="!speechSupported"
+              (click)="toggleVoiceSearch()"
+              [title]="getVoiceButtonTitle()">
+              <span *ngIf="!isRecording">🎤</span>
+              <span *ngIf="isRecording" class="recording-icon">🔴</span>
+            </button>
+          </div>
+          <div *ngIf="voiceStatus" class="voice-status" [class]="voiceStatusClass">
+            {{voiceStatus}}
+          </div>
         </div>
         <div class="sort-options">
           <select [(ngModel)]="sortBy" (change)="sortTopics()">
@@ -167,6 +190,9 @@ interface ClassTopic {
 
       <div *ngIf="filteredTopics.length === 0" class="no-results">
         <p>No se encontraron temas que coincidan con tu búsqueda.</p>
+        <p *ngIf="searchTerm" class="search-suggestion">
+          Intenta usar palabras clave diferentes o utiliza la búsqueda por voz 🎤
+        </p>
       </div>
     </div>
   `,
@@ -280,12 +306,102 @@ interface ClassTopic {
       min-width: 300px;
     }
     
-    .search-bar input {
+    .search-input-container {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    
+    .search-input-container input {
       width: 100%;
       padding: 0.75rem;
+      padding-right: 3.5rem;
       border: 2px solid #e2e8f0;
       border-radius: 6px;
       font-size: 1rem;
+      transition: border-color 0.3s;
+    }
+    
+    .search-input-container input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    
+    .voice-btn {
+      position: absolute;
+      right: 0.5rem;
+      background: transparent;
+      border: none;
+      font-size: 1.2rem;
+      cursor: pointer;
+      padding: 0.25rem;
+      border-radius: 4px;
+      transition: all 0.3s ease;
+      min-width: 2rem;
+      height: 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .voice-btn:hover {
+      background: rgba(102, 126, 234, 0.1);
+    }
+    
+    .voice-btn.recording {
+      background: rgba(239, 68, 68, 0.1);
+      animation: pulse 1s infinite;
+    }
+    
+    .voice-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .voice-btn.supported {
+      color: #667eea;
+    }
+    
+    .recording-icon {
+      animation: blink 0.8s infinite;
+    }
+    
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); }
+    }
+    
+    @keyframes blink {
+      0%, 50% { opacity: 1; }
+      51%, 100% { opacity: 0.3; }
+    }
+    
+    .voice-status {
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      text-align: center;
+      transition: all 0.3s ease;
+    }
+    
+    .voice-status.listening {
+      background: rgba(59, 130, 246, 0.1);
+      color: #1d4ed8;
+      border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+    
+    .voice-status.success {
+      background: rgba(34, 197, 94, 0.1);
+      color: #15803d;
+      border: 1px solid rgba(34, 197, 94, 0.2);
+    }
+    
+    .voice-status.error {
+      background: rgba(239, 68, 68, 0.1);
+      color: #dc2626;
+      border: 1px solid rgba(239, 68, 68, 0.2);
     }
     
     .sort-options select {
@@ -471,6 +587,12 @@ interface ClassTopic {
       font-size: 1.1rem;
     }
     
+    .search-suggestion {
+      margin-top: 1rem;
+      font-size: 1rem;
+      color: #888;
+    }
+    
     @media (max-width: 768px) {
       .class-topics-container {
         padding: 1rem;
@@ -494,13 +616,20 @@ interface ClassTopic {
     }
   `]
 })
-export class ClassTopicsComponent implements OnInit {
+export class ClassTopicsComponent implements OnInit, OnDestroy {
   topics: ClassTopic[] = [];
   filteredTopics: ClassTopic[] = [];
   showAddForm = false;
   searchTerm = '';
   sortBy = 'newest';
   userRating: { [key: number]: number } = {};
+  
+  // Propiedades para búsqueda por voz
+  private recognition: any;
+  isRecording = false;
+  speechSupported = false;
+  voiceStatus = '';
+  voiceStatusClass = '';
   
   newTopic: Partial<ClassTopic> = {
     title: '',
@@ -513,6 +642,126 @@ export class ClassTopicsComponent implements OnInit {
 
   ngOnInit() {
     this.loadTopics();
+    this.initSpeechRecognition();
+  }
+
+  ngOnDestroy() {
+    if (this.recognition) {
+      this.recognition.stop();
+    }
+  }
+
+  private initSpeechRecognition() {
+    // Verificar soporte para Speech Recognition
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    
+    if (!SpeechRecognition) {
+      this.speechSupported = false;
+      console.warn('Speech Recognition no es compatible con este navegador');
+      return;
+    }
+
+    this.speechSupported = true;
+    this.recognition = new SpeechRecognition();
+    
+    // Configuración del reconocimiento de voz
+    this.recognition.continuous = false;
+    this.recognition.interimResults = false;
+    this.recognition.lang = 'es-ES'; // Español
+    
+    // Eventos del reconocimiento de voz
+    this.recognition.onstart = () => {
+      this.isRecording = true;
+      this.voiceStatus = '🎤 Escuchando... Habla ahora';
+      this.voiceStatusClass = 'listening';
+    };
+
+    this.recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      this.searchTerm = transcript;
+      this.voiceStatus = `✅ Escuchado: "${transcript}"`;
+      this.voiceStatusClass = 'success';
+      this.filterTopics();
+      
+      // Limpiar el status después de 3 segundos
+      setTimeout(() => {
+        this.voiceStatus = '';
+        this.voiceStatusClass = '';
+      }, 3000);
+    };
+
+    this.recognition.onerror = (event: any) => {
+      let errorMessage = '';
+      switch (event.error) {
+        case 'no-speech':
+          errorMessage = '❌ No se detectó voz. Intenta de nuevo.';
+          break;
+        case 'audio-capture':
+          errorMessage = '❌ No se puede acceder al micrófono.';
+          break;
+        case 'not-allowed':
+          errorMessage = '❌ Permiso de micrófono denegado.';
+          break;
+        case 'network':
+          errorMessage = '❌ Error de conexión.';
+          break;
+        default:
+          errorMessage = '❌ Error en el reconocimiento de voz.';
+      }
+      
+      this.voiceStatus = errorMessage;
+      this.voiceStatusClass = 'error';
+      this.isRecording = false;
+      
+      // Limpiar el status después de 5 segundos
+      setTimeout(() => {
+        this.voiceStatus = '';
+        this.voiceStatusClass = '';
+      }, 5000);
+    };
+
+    this.recognition.onend = () => {
+      this.isRecording = false;
+    };
+  }
+
+  toggleVoiceSearch() {
+    if (!this.speechSupported) {
+      alert('Tu navegador no soporta reconocimiento de voz. Prueba con Chrome, Firefox o Edge.');
+      return;
+    }
+
+    if (this.isRecording) {
+      this.recognition.stop();
+      this.voiceStatus = '⏹️ Búsqueda por voz detenida';
+      this.voiceStatusClass = '';
+      setTimeout(() => {
+        this.voiceStatus = '';
+      }, 2000);
+    } else {
+      // Limpiar búsqueda anterior
+      this.searchTerm = '';
+      this.filterTopics();
+      
+      // Iniciar reconocimiento
+      try {
+        this.recognition.start();
+      } catch (error) {
+        this.voiceStatus = '❌ Error al iniciar el reconocimiento de voz';
+        this.voiceStatusClass = 'error';
+        setTimeout(() => {
+          this.voiceStatus = '';
+          this.voiceStatusClass = '';
+        }, 3000);
+      }
+    }
+  }
+
+  getVoiceButtonTitle(): string {
+    if (!this.speechSupported) {
+      return 'Reconocimiento de voz no soportado en este navegador';
+    }
+    return this.isRecording ? 'Detener búsqueda por voz' : 'Buscar con voz';
   }
 
   loadTopics() {

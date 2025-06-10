@@ -26,7 +26,6 @@ import { Classification } from '../../models/ai-software.model';
                 <li *ngFor="let example of classification.examples">{{example}}</li>
               </ul>
             </div>
-            
             <div class="links-section">
               <h4>Enlaces de Interés:</h4>
               <div class="links-list">
