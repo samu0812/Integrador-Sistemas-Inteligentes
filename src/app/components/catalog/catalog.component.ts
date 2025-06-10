@@ -40,13 +40,33 @@ import { AISoftware } from '../../models/ai-software.model';
           </div>
         </form>
       </div>
-      <input
-        type="text"
-        [(ngModel)]="filtro"
-        placeholder="🔍 Buscar por nombre, autor, categoría o descripción..."
-        class="form-control mb-3"
-        style="width: 100%; padding: 0.75rem; margin-bottom: 1rem; border: 1px solid #ccc; border-radius: 6px;"
-      />
+      <!-- Reemplaza tu input actual con este bloque -->
+      <div class="search-container">
+        <div class="search-input-group">
+          <input
+            type="text"
+            [(ngModel)]="filtro"
+            placeholder="🔍 Buscar por nombre, autor, categoría o descripción..."
+            class="search-input"
+          />
+          <button 
+            (click)="toggleVoiceSearch()" 
+            [class.recording]="isRecording"
+            class="voice-btn"
+            [disabled]="!speechSupported"
+            title="{{speechSupported ? 'Buscar por voz' : 'Búsqueda por voz no soportada'}}">
+            {{isRecording ? '🛑' : '🎤'}}
+          </button>
+        </div>
+        
+        <div *ngIf="isRecording" class="recording-indicator">
+          <span class="pulse">🔴</span> Escuchando... Di lo que quieres buscar
+        </div>
+        
+        <div *ngIf="voiceError" class="voice-error">
+          ⚠️ {{voiceError}}
+        </div>
+      </div>
 
       <div class="software-grid">
         <div *ngFor="let software of softwareFiltrado" class="software-card">
@@ -245,12 +265,93 @@ import { AISoftware } from '../../models/ai-software.model';
     .star-btn:hover, .star-btn.active {
       opacity: 1;
     }
+    /*estilos de busqueda por vos */
+    .search-container {
+      margin-bottom: 1rem;
+    }
+
+    .search-input-group {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .search-input {
+      flex: 1;
+      padding: 0.75rem;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+
+    .voice-btn {
+      padding: 0.75rem;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 1.2rem;
+      min-width: 50px;
+      transition: all 0.3s;
+    }
+
+    .voice-btn:hover:not(:disabled) {
+      background: #5a6fd8;
+      transform: scale(1.05);
+    }
+
+    .voice-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    .voice-btn.recording {
+      background: #dc3545;
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); }
+    }
+
+    .recording-indicator {
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      background: #d4edda;
+      border: 1px solid #c3e6cb;
+      border-radius: 4px;
+      color: #155724;
+      font-size: 0.9rem;
+    }
+
+    .pulse {
+      animation: pulse 1s infinite;
+    }
+
+    .voice-error {
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      border-radius: 4px;
+      color: #721c24;
+      font-size: 0.9rem;
+    }
   `]
 })
 export class CatalogComponent implements OnInit {
   aiSoftware: AISoftware[] = [];
   showAddForm = false;
   hoveredRating: {[key: number]: number} = {};
+  // Nuevas propiedades para búsqueda por voz
+  isRecording = false;
+  speechSupported = false;
+  voiceError = '';
+  private recognition: any;
+  private stopTimeout: any;
   
   newSoftware: Partial<AISoftware> = {
     name: '',
@@ -265,13 +366,159 @@ export class CatalogComponent implements OnInit {
     ratingCount: 0
   };
 
-  constructor(private dataService: DataService) {}
+  constructor(private dataService: DataService) {
+    // Verificar soporte para Web Speech API
+    this.checkSpeechSupport();
+
+  }
+
+
 
   ngOnInit() {
     this.dataService.aiSoftware$.subscribe(software => {
       this.aiSoftware = software;
     });
   }
+
+  // Nuevos métodos para búsqueda por voz
+  private checkSpeechSupport() {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    this.speechSupported = !!SpeechRecognition;
+    
+    if (this.speechSupported) {
+      this.initializeSpeechRecognition();
+    }
+  }
+
+  // REEMPLAZA solo este método en tu código:
+
+  private initializeSpeechRecognition() {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    this.recognition = new SpeechRecognition();
+    
+    // Configuración
+    this.recognition.lang = 'es-ES'; // Español
+    this.recognition.continuous = false;
+    this.recognition.interimResults = false;
+    this.recognition.maxAlternatives = 1;
+
+    // Evento cuando se obtiene resultado
+    this.recognition.onresult = (event: any) => {
+      const result = event.results[0][0].transcript;
+      console.log('Texto reconocido:', result);
+      
+      // Actualizar el filtro con el texto reconocido
+      this.filtro = result;
+      // ❌ QUITAR: this.stopRecording(); 
+    };
+
+    // Evento cuando termina la grabación (ÚNICO lugar donde se maneja el final)
+    this.recognition.onend = () => {
+      console.log('Reconocimiento terminado automáticamente');
+      this.isRecording = false; // ✅ Solo cambiar estado
+      // ❌ QUITAR: this.stopRecording();
+    };
+
+    // Evento de error
+    this.recognition.onerror = (event: any) => {
+      console.error('Error de reconocimiento:', event.error);
+      this.handleVoiceError(event.error);
+      this.isRecording = false; // ✅ Solo cambiar estado
+      // ❌ QUITAR: this.stopRecording();
+    };
+
+    // Evento cuando no se detecta habla
+    this.recognition.onnomatch = () => {
+      this.voiceError = 'No se pudo entender lo que dijiste. Inténtalo de nuevo.';
+      this.isRecording = false; // ✅ Solo cambiar estado
+      // ❌ QUITAR: this.stopRecording();
+    };
+  }
+
+  toggleVoiceSearch() {
+    if (!this.speechSupported) {
+      this.voiceError = 'Tu navegador no soporta búsqueda por voz.';
+      return;
+    }
+
+    if (this.isRecording) {
+      this.stopRecording();
+    } else {
+      this.startRecording();
+    }
+  }
+
+      private startRecording() {
+      if (this.isRecording) return;
+      
+      this.isRecording = true;
+      this.voiceError = '';
+      
+      // Limpiar timeout anterior si existe
+      if (this.stopTimeout) {
+        clearTimeout(this.stopTimeout);
+      }
+      
+      try {
+        this.recognition.start();
+        console.log('Iniciando reconocimiento de voz xddd...');
+      } catch (error) {
+        console.error('Error al iniciar reconocimiento:', error);
+        this.voiceError = 'Error al iniciar la grabación.';
+        this.isRecording = false;
+      }
+    }
+
+    private stopRecording() {
+      if (!this.isRecording) return;
+      
+      console.log('Deteniendo reconocimiento...');
+      
+      // Usar timeout para asegurar que se detenga
+      this.stopTimeout = setTimeout(() => {
+        this.isRecording = false;
+        console.log('Forzando parada por timeout');
+      }, 100);
+      
+      if (this.recognition) {
+        try {
+          this.recognition.stop();
+        } catch (error) {
+          console.error('Error al detener reconocimiento:', error);
+          this.isRecording = false;
+        }
+      }
+    }
+
+  private handleVoiceError(error: string) {
+    switch (error) {
+      case 'no-speech':
+        this.voiceError = 'No se detectó ningún sonido. Inténtalo de nuevo.';
+        break;
+      case 'audio-capture':
+        this.voiceError = 'No se pudo acceder al micrófono.';
+        break;
+      case 'not-allowed':
+        this.voiceError = 'Permiso para usar micrófono denegado.';
+        break;
+      case 'network':
+        this.voiceError = 'Error de red. Verifica tu conexión.';
+        break;
+      default:
+        this.voiceError = 'Error de reconocimiento. Inténtalo de nuevo.';
+    }
+  }
+
+  // Limpiar timeout en ngOnDestroy
+  ngOnDestroy() {
+    if (this.recognition) {
+      this.recognition.stop();
+    }
+    if (this.stopTimeout) {
+      clearTimeout(this.stopTimeout);
+    }
+  }
+
 
   addSoftware() {
     if (this.newSoftware.name && this.newSoftware.objective) {
