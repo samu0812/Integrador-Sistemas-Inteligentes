@@ -10,8 +10,9 @@ import { FormsModule } from '@angular/forms';
   imports: [CommonModule, FormsModule],
   template: `
     <div class="classifications-container">
-      <h1>🔍 Clasificaciones de Sistemas Inteligentess</h1>
-<!-- Reemplaza tu input actual con este bloque -->
+      <h1>🔍 Clasificaciones de Sistemas Inteligentes</h1>
+      
+      <!-- Búsqueda con voz -->
       <div class="search-container">
         <div class="search-input-group">
           <input
@@ -39,6 +40,7 @@ import { FormsModule } from '@angular/forms';
         </div>
       </div>
       
+      <!-- Grid de clasificaciones -->
       <div class="classifications-grid">
         <div *ngFor="let classification of classificationsFiltradas" class="classification-card">
           <div class="card-image">
@@ -74,11 +76,11 @@ import { FormsModule } from '@angular/forms';
             </div>
             <div class="rating-actions">
               <button *ngFor="let star of [1,2,3,4,5]" 
-                      (click)="rateClassification(classification.id, star)"
+                      (click)="rateClassification(classification.id!, star)"
                       class="star-btn"
-                      [class.active]="star <= hoveredRating[classification.id]"
-                      (mouseenter)="hoveredRating[classification.id] = star"
-                      (mouseleave)="hoveredRating[classification.id] = 0">
+                      [class.active]="star <= getHoveredRating(classification.id!)"
+                      (mouseenter)="setHoveredRating(classification.id!, star)"
+                      (mouseleave)="clearHoveredRating(classification.id!)">
                 ⭐
               </button>
             </div>
@@ -202,9 +204,10 @@ import { FormsModule } from '@angular/forms';
     .star-btn:hover, .star-btn.active {
       opacity: 1;
     }
-    /*estilos de busqueda por vos */
+    
+    /* Estilos de búsqueda por voz */
     .search-container {
-      margin-bottom: 1rem;
+      margin-bottom: 2rem;
     }
 
     .search-input-group {
@@ -279,9 +282,9 @@ import { FormsModule } from '@angular/forms';
     }
   `]
 })
-export class ClassificationsComponent implements OnInit {
+export class ClassificationsComponent implements OnInit, OnDestroy {
   classifications: Classification[] = [];
-  hoveredRating: {[key: number]: number} = {};
+  hoveredRating: {[key: string]: number} = {}; // Cambiado de number a string
   filtro: string = '';
   
   // Propiedades para búsqueda por voz
@@ -292,19 +295,23 @@ export class ClassificationsComponent implements OnInit {
   private isManualStop = false;
 
   constructor(
-    
     private dataService: DataService,
     private cdr: ChangeDetectorRef
-
   ) {
     this.checkSpeechSupport();
-
   }
 
   ngOnInit() {
     this.dataService.classifications$.subscribe(classifications => {
       this.classifications = classifications;
     });
+  }
+
+  ngOnDestroy() {
+    // Limpiar el reconocimiento de voz al destruir el componente
+    if (this.recognition) {
+      this.recognition.stop();
+    }
   }
 
   // MÉTODOS DE BÚSQUEDA POR VOZ
@@ -356,22 +363,22 @@ export class ClassificationsComponent implements OnInit {
     };
   }
 
-    toggleVoiceSearch() {
-        console.log('Toggle clicked. Current state:', this.isRecording);
-        
-        if (!this.speechSupported) {
-          this.voiceError = 'Tu navegador no soporta búsqueda por voz.';
-          return;
-        }
+  toggleVoiceSearch() {
+    console.log('Toggle clicked. Current state:', this.isRecording);
+    
+    if (!this.speechSupported) {
+      this.voiceError = 'Tu navegador no soporta búsqueda por voz.';
+      return;
+    }
 
-        if (this.isRecording) {
-          this.stopRecording();
-        } else {
-          this.startRecording();
-        }
-      }
+    if (this.isRecording) {
+      this.stopRecording();
+    } else {
+      this.startRecording();
+    }
+  }
 
-    private startRecording() {
+  private startRecording() {
     if (this.isRecording) {
       console.log('Ya está grabando, ignorando...');
       return;
@@ -430,18 +437,36 @@ export class ClassificationsComponent implements OnInit {
     }
   }
 
-  rateClassification(id: number, rating: number) {
+  // MÉTODOS DE RATING - Actualizados para Firebase
+  rateClassification(id: string, rating: number) {
+    if (!id) {
+      console.error('ID de clasificación no válido');
+      return;
+    }
     this.dataService.rateClassification(id, rating);
   }
 
-get classificationsFiltradas(): Classification[] {
-  const texto = this.filtro.toLowerCase();
-  return this.classifications.filter(clasif =>
-    clasif.name.toLowerCase().includes(texto) ||
-    clasif.description.toLowerCase().includes(texto) ||
-    clasif.examples.some(ej => ej.toLowerCase().includes(texto)) ||
-    clasif.interestLinks.some(link => link.toLowerCase().includes(texto))
-  );
-}
+  // Métodos helper para manejo de hover rating con string IDs
+  getHoveredRating(id: string): number {
+    return this.hoveredRating[id] || 0;
+  }
 
+  setHoveredRating(id: string, rating: number) {
+    this.hoveredRating[id] = rating;
+  }
+
+  clearHoveredRating(id: string) {
+    this.hoveredRating[id] = 0;
+  }
+
+  // FILTRADO
+  get classificationsFiltradas(): Classification[] {
+    const texto = this.filtro.toLowerCase();
+    return this.classifications.filter(clasif =>
+      clasif.name.toLowerCase().includes(texto) ||
+      clasif.description.toLowerCase().includes(texto) ||
+      clasif.examples.some(ej => ej.toLowerCase().includes(texto)) ||
+      clasif.interestLinks.some(link => link.toLowerCase().includes(texto))
+    );
+  }
 }

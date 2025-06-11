@@ -34,7 +34,9 @@ import { ForumPost } from '../../models/ai-software.model';
                     placeholder="Contenido de tu post..." 
                     required></textarea>
           <div class="form-actions">
-            <button type="submit" [disabled]="!form.valid">Publicar</button>
+            <button type="submit" [disabled]="!form.valid || isCreatingPost">
+              {{ isCreatingPost ? 'Publicando...' : 'Publicar' }}
+            </button>
             <button type="button" (click)="cancelPost()">Cancelar</button>
           </div>
         </form>
@@ -57,36 +59,36 @@ import { ForumPost } from '../../models/ai-software.model';
           </div>
           
           <div class="post-footer">
-            <button (click)="toggleReplies[post.id] = !toggleReplies[post.id]" 
+            <button (click)="toggleReplies[post.id!] = !toggleReplies[post.id!]" 
                     class="replies-btn">
-              💬 {{toggleReplies[post.id] ? 'Ocultar' : 'Ver'}} respuestas
+              💬 {{toggleReplies[post.id!] ? 'Ocultar' : 'Ver'}} respuestas
             </button>
-            <button (click)="toggleReplyForm(post.id)" 
+            <button (click)="toggleReplyForm(post.id!)" 
                     class="reply-btn">
-              {{showReplyForm[post.id] ? 'Cancelar' : 'Responder'}}
+              {{showReplyForm[post.id!] ? 'Cancelar' : 'Responder'}}
             </button>
           </div>
 
           <!-- Formulario de respuesta -->
-          <div *ngIf="showReplyForm[post.id]" class="reply-form">
+          <div *ngIf="showReplyForm[post.id!]" class="reply-form">
             <h4>Agregar respuesta</h4>
-            <textarea [ngModel]="getReplyFormValue(post.id, 'content')" 
+            <textarea [ngModel]="getReplyFormValue(post.id!, 'content')" 
                       placeholder="Escribe tu respuesta..."
-                      (ngModelChange)="setReplyFormValue(post.id, 'content', $event)"></textarea>
-            <input [ngModel]="getReplyFormValue(post.id, 'author')" 
+                      (ngModelChange)="setReplyFormValue(post.id!, 'content', $event)"></textarea>
+            <input [ngModel]="getReplyFormValue(post.id!, 'author')" 
                    placeholder="Tu nombre"
-                   (ngModelChange)="setReplyFormValue(post.id, 'author', $event)">
+                   (ngModelChange)="setReplyFormValue(post.id!, 'author', $event)">
             <div class="reply-actions">
-              <button (click)="addReply(post.id)" 
-                      [disabled]="!canSubmitReply(post.id)">
-                Enviar
+              <button (click)="addReply(post.id!)" 
+                      [disabled]="!canSubmitReply(post.id!) || isAddingReply[post.id!]">
+                {{ isAddingReply[post.id!] ? 'Enviando...' : 'Enviar' }}
               </button>
-              <button (click)="cancelReply(post.id)">Cancelar</button>
+              <button (click)="cancelReply(post.id!)">Cancelar</button>
             </div>
           </div>
 
           <!-- Sección de respuestas -->
-          <div *ngIf="toggleReplies[post.id] && post.replies.length > 0" class="replies-section">
+          <div *ngIf="toggleReplies[post.id!] && post.replies.length > 0" class="replies-section">
             <h4>Respuestas ({{post.replies.length}})</h4>
             <div *ngFor="let reply of post.replies; trackBy: trackByReplyId" class="reply-card">
               <div class="reply-header">
@@ -98,7 +100,7 @@ import { ForumPost } from '../../models/ai-software.model';
           </div>
 
           <!-- Mensaje cuando no hay respuestas -->
-          <div *ngIf="toggleReplies[post.id] && post.replies.length === 0" class="no-replies">
+          <div *ngIf="toggleReplies[post.id!] && post.replies.length === 0" class="no-replies">
             <p>Aún no hay respuestas. ¡Sé el primero en comentar!</p>
           </div>
         </div>
@@ -491,8 +493,12 @@ export class ForumComponent implements OnInit {
   
   // Estados de UI
   showNewPostForm = false;
-  showReplyForm: {[key: number]: boolean} = {};
-  toggleReplies: {[key: number]: boolean} = {};
+  showReplyForm: {[key: string]: boolean} = {};
+  toggleReplies: {[key: string]: boolean} = {};
+  
+  // Estados de loading
+  isCreatingPost = false;
+  isAddingReply: {[key: string]: boolean} = {};
   
   // Formularios
   newPost = {
@@ -502,87 +508,36 @@ export class ForumComponent implements OnInit {
   };
   
   // Manejo individual de formularios de respuesta por post
-  replyForms: {[key: number]: {content: string, author: string}} = {};
-  
-  // Contador para IDs únicos
-  private nextPostId = 1;
-  private nextReplyId = 1;
+  replyForms: {[key: string]: {content: string, author: string}} = {};
 
   constructor(private dataService: DataService) {}
 
   ngOnInit() {
-    // Suscribirse a los posts del servicio
+    // Suscribirse a los posts del servicio (Firebase)
     this.dataService.forumPosts$.subscribe(posts => {
       this.forumPosts = posts;
-      // Actualizar contadores para mantener IDs únicos
-      if (posts.length > 0) {
-        this.nextPostId = Math.max(...posts.map(p => p.id)) + 1;
-        const allReplies = posts.flatMap(p => p.replies);
-        if (allReplies.length > 0) {
-          this.nextReplyId = Math.max(...allReplies.map(r => r.id)) + 1;
-        }
-      }
     });
-    
-    // Inicializar algunos posts de ejemplo si no hay datos
-    this.initializeExampleData();
   }
 
   /**
-   * Método helper para obtener valores del formulario de respuesta de manera segura
+   * Crear un nuevo post (usando Firebase)
    */
-  getReplyFormValue(postId: number, field: 'content' | 'author'): string {
-    if (!this.replyForms[postId]) {
-      this.replyForms[postId] = { content: '', author: '' };
-    }
-    return this.replyForms[postId][field];
-  }
-
-  /**
-   * Inicializar datos de ejemplo para demostración
-   */
-  private initializeExampleData() {
-    if (this.forumPosts.length === 0) {
-      const examplePosts: ForumPost[] = [
-        {
-          id: 1,
-          title: '¿Cuál es el futuro de la IA en el desarrollo de software?',
-          content: 'Me gustaría conocer sus opiniones sobre cómo la inteligencia artificial está transformando la manera en que desarrollamos software. ¿Creen que eventualmente reemplazará a los programadores?',
-          author: 'TechEnthusiast',
-          date: new Date(Date.now() - 86400000), // Hace 1 día
-          replies: [
-            {
-              id: 1,
-              content: 'Creo que la IA será una herramienta poderosa que nos ayudará a ser más productivos, pero no creo que reemplace completamente a los desarrolladores. Siempre necesitaremos creatividad humana.',
-              author: 'CodeMaster',
-              date: new Date(Date.now() - 43200000) // Hace 12 horas
-            }
-          ]
-        }
-      ];
-      
-      // Agregar posts de ejemplo usando el servicio
-      examplePosts.forEach(post => {
-        this.dataService.addForumPost({
-          title: post.title,
-          content: post.content,
-          author: post.author
-        });
-      });
-    }
-  }
-
-  /**
-   * Crear un nuevo post
-   */
-  createPost() {
+  async createPost() {
     if (this.newPost.title.trim() && this.newPost.content.trim() && this.newPost.author.trim()) {
-      this.dataService.addForumPost({
-        title: this.newPost.title.trim(),
-        content: this.newPost.content.trim(),
-        author: this.newPost.author.trim()
-      });
-      this.cancelPost();
+      this.isCreatingPost = true;
+      
+      try {
+        await this.dataService.addForumPost({
+          title: this.newPost.title.trim(),
+          content: this.newPost.content.trim(),
+          author: this.newPost.author.trim()
+        });
+        this.cancelPost();
+      } catch (error) {
+        console.error('Error al crear el post:', error);
+      } finally {
+        this.isCreatingPost = false;
+      }
     }
   }
 
@@ -597,7 +552,7 @@ export class ForumComponent implements OnInit {
   /**
    * Toggle formulario de respuesta
    */
-  toggleReplyForm(postId: number) {
+  toggleReplyForm(postId: string) {
     this.showReplyForm[postId] = !this.showReplyForm[postId];
     
     // Inicializar formulario si no existe
@@ -612,9 +567,19 @@ export class ForumComponent implements OnInit {
   }
 
   /**
+   * Método helper para obtener valores del formulario de respuesta de manera segura
+   */
+  getReplyFormValue(postId: string, field: 'content' | 'author'): string {
+    if (!this.replyForms[postId]) {
+      this.replyForms[postId] = { content: '', author: '' };
+    }
+    return this.replyForms[postId][field];
+  }
+
+  /**
    * Establecer valor del formulario de respuesta
    */
-  setReplyFormValue(postId: number, field: 'content' | 'author', value: string) {
+  setReplyFormValue(postId: string, field: 'content' | 'author', value: string) {
     if (!this.replyForms[postId]) {
       this.replyForms[postId] = { content: '', author: '' };
     }
@@ -624,33 +589,44 @@ export class ForumComponent implements OnInit {
   /**
    * Verificar si se puede enviar la respuesta
    */
-  canSubmitReply(postId: number): boolean {
+  canSubmitReply(postId: string): boolean {
     const form = this.replyForms[postId];
     return form && form.content.trim() !== '' && form.author.trim() !== '';
   }
 
   /**
-   * Agregar respuesta a un post
+   * Agregar respuesta a un post (Firebase)
+   * Nota: Esta funcionalidad requiere implementar un método en el DataService
+   * para actualizar un post existente con una nueva respuesta
    */
-  addReply(postId: number) {
+  async addReply(postId: string) {
     const form = this.replyForms[postId];
     
     if (!this.canSubmitReply(postId)) {
       return;
     }
 
-    // Encontrar el post y agregar la respuesta
-    const postIndex = this.forumPosts.findIndex(post => post.id === postId);
-    if (postIndex !== -1) {
+    this.isAddingReply[postId] = true;
+
+    try {
+      // Encontrar el post actual
+      const post = this.forumPosts.find(p => p.id === postId);
+      if (!post) {
+        throw new Error('Post no encontrado');
+      }
+
+      // Crear nueva respuesta
       const newReply = {
-        id: this.nextReplyId++,
         content: form.content.trim(),
         author: form.author.trim(),
         date: new Date()
       };
 
-      // Actualizar el post con la nueva respuesta
-      this.forumPosts[postIndex].replies.push(newReply);
+      // Agregar la respuesta al array local del post
+      const updatedReplies = [...post.replies, newReply];
+      
+      // Actualizar en Firebase (necesitarás implementar este método en DataService)
+      await this.dataService.updateForumPost(postId, { replies: updatedReplies });
       
       // Mostrar las respuestas automáticamente
       this.toggleReplies[postId] = true;
@@ -658,30 +634,32 @@ export class ForumComponent implements OnInit {
       // Limpiar y ocultar formulario
       this.cancelReply(postId);
       
-      // Actualizar el servicio (si tienes un método para esto)
-      // this.dataService.updateForumPost(this.forumPosts[postIndex]);
+    } catch (error) {
+      console.error('Error al agregar respuesta:', error);
+    } finally {
+      this.isAddingReply[postId] = false;
     }
   }
 
   /**
    * Cancelar respuesta
    */
-  cancelReply(postId: number) {
+  cancelReply(postId: string) {
     this.showReplyForm[postId] = false;
     this.replyForms[postId] = { content: '', author: '' };
   }
 
   /**
-   * TrackBy function para optimizar rendering de respuestas
+   * TrackBy function para optimizar rendering de posts
    */
-  trackByReplyId(index: number, reply: any): number {
-    return reply.id;
+  trackByPostId(index: number, post: ForumPost): string {
+    return post.id || index.toString();
   }
 
   /**
-   * TrackBy function para optimizar rendering de posts
+   * TrackBy function para optimizar rendering de respuestas
    */
-  trackByPostId(index: number, post: ForumPost): number {
-    return post.id;
+  trackByReplyId(index: number, reply: any): string {
+    return reply.id || index.toString();
   }
 }

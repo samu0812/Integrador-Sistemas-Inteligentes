@@ -1,19 +1,8 @@
 import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { DataService } from '../../services/data.service';
-
-interface ClassTopic {
-  id: number;
-  title: string;
-  image: string;
-  description: string;
-  content: string;
-  rating: number;
-  ratingCount: number;
-  createdDate: Date;
-  expanded?: boolean;
-}
+import { DataService, ClassTopic } from '../../services/data.service';
+import { Subscription } from 'rxjs';
 
 @Component({
   selector: 'app-class-topics',
@@ -78,8 +67,9 @@ interface ClassTopic {
           </div>
           
           <div class="form-actions">
-            <button type="submit" [disabled]="!topicForm.form.valid" class="save-btn">
-              💾 Guardar Tema
+            <button type="submit" [disabled]="!topicForm.form.valid || isLoading" class="save-btn">
+              <span *ngIf="!isLoading">💾 Guardar Tema</span>
+              <span *ngIf="isLoading">⏳ Guardando...</span>
             </button>
           </div>
         </form>
@@ -88,33 +78,32 @@ interface ClassTopic {
       <!-- Filtros y búsqueda -->
       <div class="filters-section">
         <div class="search-bar">
-          <!-- Reemplaza tu input actual con este bloque -->
-      <div class="search-container">
-        <div class="search-input-group">
-          <input
-            type="text"
-            [(ngModel)]="filtro"
-            placeholder="🔍 Buscar por nombre, autor, categoría o descripción..."
-            class="search-input"
-          />
-          <button 
-            (click)="toggleVoiceSearch()" 
-            [class.recording]="isRecording"
-            class="voice-btn"
-            [disabled]="!speechSupported"
-            title="{{speechSupported ? 'Buscar por voz' : 'Búsqueda por voz no soportada'}}">
-            {{isRecording ? '🛑' : '🎤'}}
-          </button>
-        </div>
-        
-        <div *ngIf="isRecording" class="recording-indicator">
-          <span class="pulse">🔴</span> Escuchando... Di lo que quieres buscar
-        </div>
-        
-        <div *ngIf="voiceError" class="voice-error">
-          ⚠️ {{voiceError}}
-        </div>
-      </div>
+          <div class="search-container">
+            <div class="search-input-group">
+              <input
+                type="text"
+                [(ngModel)]="filtro"
+                placeholder="🔍 Buscar por nombre, autor, categoría o descripción..."
+                class="search-input"
+              />
+              <button 
+                (click)="toggleVoiceSearch()" 
+                [class.recording]="isRecording"
+                class="voice-btn"
+                [disabled]="!speechSupported"
+                title="{{speechSupported ? 'Buscar por voz' : 'Búsqueda por voz no soportada'}}">
+                {{isRecording ? '🛑' : '🎤'}}
+              </button>
+            </div>
+            
+            <div *ngIf="isRecording" class="recording-indicator">
+              <span class="pulse">🔴</span> Escuchando... Di lo que quieres buscar
+            </div>
+            
+            <div *ngIf="voiceError" class="voice-error">
+              ⚠️ {{voiceError}}
+            </div>
+          </div>
         </div>
         <div class="sort-options">
           <select [(ngModel)]="sortBy" (change)="sortTopics()">
@@ -158,8 +147,9 @@ interface ClassTopic {
                 <span *ngIf="!topic.expanded">📄 Ver Contenido Completo</span>
                 <span *ngIf="topic.expanded">📝 Ocultar Contenido</span>
               </button>
-              <button class="delete-btn" (click)="deleteTopic(topic.id)">
-                🗑️ Eliminar
+              <button class="delete-btn" (click)="deleteTopic(topic.id!)" [disabled]="isLoading">
+                <span *ngIf="!isLoading">🗑️ Eliminar</span>
+                <span *ngIf="isLoading">⏳</span>
               </button>
             </div>
           </div>
@@ -179,16 +169,24 @@ interface ClassTopic {
               <div class="rating-stars">
                 <span *ngFor="let star of [1,2,3,4,5]; let i = index"
                       class="rating-star"
-                      [class.active]="i < userRating[topic.id] || 0"
-                      (click)="rateTopic(topic, i + 1)">⭐</span>
+                      [class.active]="i < (userRating[topic.id!] || 0)"
+                      (click)="rateTopic(topic, i + 1)"
+                      [style.cursor]="isLoading ? 'not-allowed' : 'pointer'">⭐</span>
+              </div>
+              <div *ngIf="isLoading" class="rating-loading">
+                Actualizando calificación...
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div *ngIf="filteredTopics.length === 0" class="no-results">
+      <div *ngIf="filteredTopics.length === 0 && !isLoading" class="no-results">
         <p>No se encontraron temas que coincidan con tu búsqueda.</p>
+      </div>
+
+      <div *ngIf="isLoading && topics.length === 0" class="loading">
+        <p>⏳ Cargando temas...</p>
       </div>
     </div>
   `,
@@ -591,13 +589,16 @@ interface ClassTopic {
     }
   `]
 })
-export class ClassTopicsComponent implements OnInit {
+export class ClassTopicsComponent implements OnInit, OnDestroy {
   topics: ClassTopic[] = [];
-  // filteredTopics: ClassTopic[] = [];
   showAddForm = false;
   searchTerm = '';
   sortBy = 'newest';
-  userRating: { [key: number]: number } = {};
+  userRating: { [key: string]: number } = {}; // Cambiado a string para Firebase IDs
+  isLoading = false;
+
+  // Suscripción para manejar datos reactivos
+  private topicsSubscription?: Subscription;
 
   newTopic: Partial<ClassTopic> = {
     title: '',
@@ -606,7 +607,7 @@ export class ClassTopicsComponent implements OnInit {
     content: ''
   };
 
-    // Propiedades para búsqueda por voz
+  // Propiedades para búsqueda por voz
   filtro: string = '';
   isRecording = false;
   speechSupported = false;
@@ -617,22 +618,104 @@ export class ClassTopicsComponent implements OnInit {
   constructor(
     private dataService: DataService,
     private cdr: ChangeDetectorRef
-
   ) {
-
     this.checkSpeechSupport();
   }
-
 
   ngOnInit() {
     this.loadTopics();
   }
 
-  // ✅ AGREGAR ESTE GETTER - Para que funcione el filtrado por voz
+  ngOnDestroy() {
+    // Limpiar suscripciones
+    if (this.topicsSubscription) {
+      this.topicsSubscription.unsubscribe();
+    }
+    
+    // Detener reconocimiento de voz si está activo
+    if (this.recognition && this.isRecording) {
+      this.recognition.stop();
+    }
+  }
+
+  // ✅ ACTUALIZADO: Usar Observable de Firebase
+  loadTopics() {
+    this.topicsSubscription = this.dataService.classTopics$.subscribe({
+      next: (topics) => {
+        this.topics = topics;
+        this.cdr.detectChanges();
+      },
+      error: (error) => {
+        console.error('Error loading topics:', error);
+        this.isLoading = false;
+      }
+    });
+  }
+
+  // ✅ ACTUALIZADO: Método async para agregar tema
+  async addTopic() {
+    if (this.newTopic.title && this.newTopic.description && this.newTopic.content) {
+      this.isLoading = true;
+      
+      try {
+        await this.dataService.addClassTopic({
+          title: this.newTopic.title,
+          image: this.newTopic.image || '',
+          description: this.newTopic.description,
+          content: this.newTopic.content
+        });
+        
+        this.resetForm();
+        this.showAddForm = false;
+      } catch (error) {
+        console.error('Error adding topic:', error);
+        alert('Error al guardar el tema. Por favor, inténtalo de nuevo.');
+      } finally {
+        this.isLoading = false;
+      }
+    }
+  }
+
+  // ✅ ACTUALIZADO: Método async para eliminar tema
+  async deleteTopic(id: string) {
+    if (confirm('¿Estás seguro de que quieres eliminar este tema?')) {
+      this.isLoading = true;
+      
+      try {
+        await this.dataService.deleteClassTopic(id);
+      } catch (error) {
+        console.error('Error deleting topic:', error);
+        alert('Error al eliminar el tema. Por favor, inténtalo de nuevo.');
+      } finally {
+        this.isLoading = false;
+      }
+    }
+  }
+
+  // ✅ ACTUALIZADO: Método async para calificar tema
+  async rateTopic(topic: ClassTopic, rating: number) {
+    if (!topic.id) return;
+    
+    this.isLoading = true;
+    
+    try {
+      this.userRating[topic.id] = rating;
+      await this.dataService.rateClassTopic(topic.id, rating);
+    } catch (error) {
+      console.error('Error rating topic:', error);
+      // Revertir la calificación local en caso de error
+      delete this.userRating[topic.id];
+      alert('Error al calificar el tema. Por favor, inténtalo de nuevo.');
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  // Getter para temas filtrados
   get filteredTopics(): ClassTopic[] {
     let result = [...this.topics];
     
-    // Filtrar por texto de búsqueda por voz O por searchTerm
+    // Filtrar por texto de búsqueda
     const searchText = this.filtro || this.searchTerm;
     if (searchText && searchText.trim()) {
       const term = searchText.toLowerCase();
@@ -662,7 +745,68 @@ export class ClassTopicsComponent implements OnInit {
     return result;
   }
 
-  // MÉTODOS DE BÚSQUEDA POR VOZ
+  // Métodos de utilidad (sin cambios significativos)
+  toggleAddForm() {
+    this.showAddForm = !this.showAddForm;
+    if (!this.showAddForm) {
+      this.resetForm();
+    }
+  }
+
+  resetForm() {
+    this.newTopic = {
+      title: '',
+      image: '',
+      description: '',
+      content: ''
+    };
+  }
+
+  filterTopics() {
+    if (this.searchTerm) {
+      this.filtro = '';
+    }
+  }
+
+  sortTopics() {
+    // El ordenamiento se maneja automáticamente en el getter
+  }
+
+  toggleExpand(topic: ClassTopic) {
+    topic.expanded = !topic.expanded;
+  }
+
+  getStars(rating: number) {
+    const stars = [];
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 >= 0.5;
+    
+    for (let i = 0; i < fullStars; i++) {
+      stars.push({ symbol: '⭐', class: 'full' });
+    }
+    
+    if (hasHalfStar) {
+      stars.push({ symbol: '⭐', class: 'half' });
+    }
+    
+    while (stars.length < 5) {
+      stars.push({ symbol: '☆', class: 'empty' });
+    }
+    
+    return stars;
+  }
+
+  formatContent(content: string): string {
+    return content.replace(/\n/g, '<br>');
+  }
+
+  onImageError(event: any) {
+    event.target.style.display = 'none';
+    event.target.parentElement.classList.add('placeholder');
+    event.target.parentElement.innerHTML = '<span class="placeholder-icon">📖</span>';
+  }
+
+  // MÉTODOS DE BÚSQUEDA POR VOZ (sin cambios)
   private checkSpeechSupport() {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     this.speechSupported = !!SpeechRecognition;
@@ -711,22 +855,22 @@ export class ClassTopicsComponent implements OnInit {
     };
   }
 
-    toggleVoiceSearch() {
-        console.log('Toggle clicked. Current state:', this.isRecording);
-        
-        if (!this.speechSupported) {
-          this.voiceError = 'Tu navegador no soporta búsqueda por voz.';
-          return;
-        }
+  toggleVoiceSearch() {
+    console.log('Toggle clicked. Current state:', this.isRecording);
+    
+    if (!this.speechSupported) {
+      this.voiceError = 'Tu navegador no soporta búsqueda por voz.';
+      return;
+    }
 
-        if (this.isRecording) {
-          this.stopRecording();
-        } else {
-          this.startRecording();
-        }
-      }
+    if (this.isRecording) {
+      this.stopRecording();
+    } else {
+      this.startRecording();
+    }
+  }
 
-    private startRecording() {
+  private startRecording() {
     if (this.isRecording) {
       console.log('Ya está grabando, ignorando...');
       return;
@@ -783,116 +927,5 @@ export class ClassTopicsComponent implements OnInit {
       default:
         this.voiceError = 'Error de reconocimiento. Inténtalo de nuevo.';
     }
-  }
-
-  // ✅ ACTUALIZAR EL MÉTODO loadTopics - Remover la asignación a filteredTopics
-  loadTopics() {
-    this.topics = this.dataService.getClassTopics();
-    // ❌ QUITAR ESTA LÍNEA: this.filteredTopics = [...this.topics];
-    // ❌ QUITAR ESTA LÍNEA: this.sortTopics();
-  }
-
-  toggleAddForm() {
-    this.showAddForm = !this.showAddForm;
-    if (!this.showAddForm) {
-      this.resetForm();
-    }
-  }
-
-  addTopic() {
-    if (this.newTopic.title && this.newTopic.description && this.newTopic.content) {
-      const topic: ClassTopic = {
-        id: Date.now(),
-        title: this.newTopic.title,
-        image: this.newTopic.image || '',
-        description: this.newTopic.description,
-        content: this.newTopic.content,
-        rating: 0,
-        ratingCount: 0,
-        createdDate: new Date(),
-        expanded: false
-      };
-      
-      this.dataService.addClassTopic(topic);
-      this.loadTopics();
-      this.resetForm();
-      this.showAddForm = false;
-    }
-  }
-
-  resetForm() {
-    this.newTopic = {
-      title: '',
-      image: '',
-      description: '',
-      content: ''
-    };
-  }
-
-  // ✅ ACTUALIZAR EL MÉTODO filterTopics - Simplificar
-  filterTopics() {
-    // El filtrado ahora se hace en el getter, solo necesitamos limpiar filtro por voz
-    if (this.searchTerm) {
-      this.filtro = ''; // Limpiar búsqueda por voz si se usa búsqueda manual
-    }
-  }
-
-  // ✅ ACTUALIZAR EL MÉTODO sortTopics - Ya no necesario, se hace en getter
-  sortTopics() {
-    // Este método ahora se ejecuta automáticamente en el getter
-  }
-
-    // ✅ AGREGAR MÉTODO ngOnDestroy
-  ngOnDestroy() {
-    if (this.recognition && this.isRecording) {
-      this.recognition.stop();
-    }
-  }
-
-  toggleExpand(topic: ClassTopic) {
-    topic.expanded = !topic.expanded;
-  }
-
-  deleteTopic(id: number) {
-    if (confirm('¿Estás seguro de que quieres eliminar este tema?')) {
-      this.dataService.deleteClassTopic(id);
-      this.loadTopics();
-    }
-  }
-
-  rateTopic(topic: ClassTopic, rating: number) {
-    this.userRating[topic.id] = rating;
-    this.dataService.rateClassTopic(topic.id, rating);
-    this.loadTopics();
-  }
-
-  getStars(rating: number) {
-    const stars = [];
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 >= 0.5;
-    
-    for (let i = 0; i < fullStars; i++) {
-      stars.push({ symbol: '⭐', class: 'full' });
-    }
-    
-    if (hasHalfStar) {
-      stars.push({ symbol: '⭐', class: 'half' });
-    }
-    
-    while (stars.length < 5) {
-      stars.push({ symbol: '☆', class: 'empty' });
-    }
-    
-    return stars;
-  }
-
-  formatContent(content: string): string {
-    return content.replace(/\n/g, '<br>');
-  }
-
-  onImageError(event: any) {
-    event.target.style.display = 'none';
-    event.target.parentElement.classList.add('placeholder');
-    event.target.parentElement.innerHTML = '<span class="placeholder-icon">📖</span>';
   }
 }

@@ -1,6 +1,8 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DataService } from '../../services/data.service';
+import { Subscription } from 'rxjs';
+import { combineLatest } from 'rxjs';
 
 @Component({
   selector: 'app-stats',
@@ -27,8 +29,26 @@ import { DataService } from '../../services/data.service';
           <div class="stat-icon">💬</div>
         </div>
         <div class="stat-card">
+          <h3>{{stats.totalClassTopics}}</h3>
+          <p>Temas de Clase</p>
+          <div class="stat-icon">🎓</div>
+        </div>
+      </div>
+
+      <div class="ratings-overview">
+        <div class="rating-card">
           <h3>{{stats.avgSoftwareRating | number:'1.1-1'}}</h3>
           <p>Rating Promedio Software</p>
+          <div class="stat-icon">⭐</div>
+        </div>
+        <div class="rating-card">
+          <h3>{{stats.avgClassificationRating | number:'1.1-1'}}</h3>
+          <p>Rating Promedio Clasificaciones</p>
+          <div class="stat-icon">⭐</div>
+        </div>
+        <div class="rating-card">
+          <h3>{{stats.avgClassTopicsRating | number:'1.1-1'}}</h3>
+          <p>Rating Promedio Temas</p>
           <div class="stat-icon">⭐</div>
         </div>
       </div>
@@ -75,6 +95,27 @@ import { DataService } from '../../services/data.service';
             </div>
           </div>
         </div>
+
+        <div class="top-rated-section">
+          <h2>🎓 Temas de Clase Destacados</h2>
+          <div class="top-rated-list">
+            <div *ngFor="let topic of stats.topRatedClassTopics; let i = index" 
+                 class="top-item"
+                 [class.first]="i === 0"
+                 [class.second]="i === 1"
+                 [class.third]="i === 2">
+              <span class="rank">{{i + 1}}</span>
+              <div class="item-info">
+                <h4>{{topic.title}}</h4>
+                <p>Creado: {{topic.createdDate | date:'short'}}</p>
+              </div>
+              <div class="rating">
+                <span class="stars">⭐ {{topic.rating | number:'1.1-1'}}</span>
+                <span class="votes">({{topic.ratingCount}} votos)</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="recommendations-section">
@@ -86,6 +127,7 @@ import { DataService } from '../../services/data.service';
             <ul>
               <li>{{stats.topRatedClassifications[0]?.name || 'Redes Neuronales'}}</li>
               <li>{{stats.topRatedSoftware[0]?.name || 'TensorFlow'}}</li>
+              <li>{{stats.topRatedClassTopics[0]?.title || 'Introducción a la IA'}}</li>
             </ul>
           </div>
           <div class="recommendation-card">
@@ -95,6 +137,7 @@ import { DataService } from '../../services/data.service';
               <li>Procesamiento de Lenguaje Natural</li>
               <li>Generación de Imágenes</li>
               <li>Machine Learning</li>
+              <li>Deep Learning</li>
             </ul>
           </div>
           <div class="recommendation-card">
@@ -104,9 +147,15 @@ import { DataService } from '../../services/data.service';
               <li>Frameworks de código abierto</li>
               <li>Tutoriales interactivos</li>
               <li>Comunidades activas</li>
+              <li>Temas de clase actualizados</li>
             </ul>
           </div>
         </div>
+      </div>
+
+      <div class="loading-indicator" *ngIf="isLoading">
+        <div class="spinner"></div>
+        <p>Cargando estadísticas...</p>
       </div>
     </div>
   `,
@@ -125,9 +174,15 @@ import { DataService } from '../../services/data.service';
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
       gap: 2rem;
+      margin-bottom: 2rem;
+    }
+    .ratings-overview {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 2rem;
       margin-bottom: 3rem;
     }
-    .stat-card {
+    .stat-card, .rating-card {
       background: white;
       padding: 2rem;
       border-radius: 12px;
@@ -145,12 +200,24 @@ import { DataService } from '../../services/data.service';
       height: 4px;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     }
-    .stat-card h3 {
+    .rating-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+    .stat-card h3, .rating-card h3 {
       font-size: 2.5rem;
       color: #667eea;
       margin: 0 0 0.5rem 0;
     }
-    .stat-card p {
+    .rating-card h3 {
+      color: #f5576c;
+    }
+    .stat-card p, .rating-card p {
       color: #666;
       margin: 0;
       font-weight: 500;
@@ -164,7 +231,7 @@ import { DataService } from '../../services/data.service';
     }
     .detailed-stats {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
       gap: 2rem;
       margin-bottom: 3rem;
     }
@@ -274,14 +341,68 @@ import { DataService } from '../../services/data.service';
       margin-bottom: 0.5rem;
       color: #333;
     }
+    .loading-indicator {
+      text-align: center;
+      padding: 2rem;
+      color: #666;
+    }
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #667eea;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 1rem;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
   `]
 })
-export class StatsComponent implements OnInit {
-  stats: any = {};
+export class StatsComponent implements OnInit, OnDestroy {
+  stats: any = {
+    totalSoftware: 0,
+    totalClassifications: 0,
+    totalPosts: 0,
+    totalClassTopics: 0,
+    avgSoftwareRating: 0,
+    avgClassificationRating: 0,
+    avgClassTopicsRating: 0,
+    topRatedSoftware: [],
+    topRatedClassifications: [],
+    topRatedClassTopics: []
+  };
+  
+  isLoading = true;
+  private subscription: Subscription = new Subscription();
 
   constructor(private dataService: DataService) {}
 
   ngOnInit() {
+    // Suscribirse a los cambios en tiempo real de todos los datos
+    const combinedData$ = combineLatest([
+      this.dataService.aiSoftware$,
+      this.dataService.classifications$,
+      this.dataService.forumPosts$,
+      this.dataService.classTopics$
+    ]);
+
+    this.subscription.add(
+      combinedData$.subscribe(([software, classifications, posts, topics]) => {
+        this.updateStats();
+        this.isLoading = false;
+      })
+    );
+  }
+
+  ngOnDestroy() {
+    this.subscription.unsubscribe();
+  }
+
+  private updateStats() {
+    // Obtener las estadísticas actualizadas del servicio
     this.stats = this.dataService.getStats();
   }
 }
